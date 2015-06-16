@@ -24,3 +24,58 @@ def it(description, &block)
   Counter[:specifications] += 1
   run_requirement description, block
 end
+
+def run
+  return  unless name =~ RestrictContext
+  Counter[:context_depth] += 1
+  Bacon.handle_specification(name) { instance_eval(&block) }
+  Counter[:context_depth] -= 1
+  self
+end
+
+def run_requirement(description, spec)
+  Bacon.handle_requirement description do
+    begin
+      Counter[:depth] += 1
+      rescued = false
+      begin
+        @before.each { |block| instance_eval(&block) }
+        prev_req = Counter[:requirements]
+        instance_eval(&spec)
+      rescue Object => e
+        rescued = true
+        raise e
+      ensure
+        if Counter[:requirements] == prev_req and not rescued
+          raise Error.new(:missing,
+                          "empty specification: #{@name} #{description}")
+        end
+        begin
+          @after.each { |block| instance_eval(&block) }
+        rescue Object => e
+          raise e  unless rescued
+        end
+      end
+    rescue Object => e
+      ErrorLog << "#{e.class}: #{e.message}\n"
+      e.backtrace.find_all { |line| line !~ /bin\/bacon|\/bacon\.rb:\d+/ }.
+        each_with_index { |line, i|
+        ErrorLog << "~~~~ "
+      }
+
+      ErrorLog << "\n"
+
+      if e.kind_of? Error
+        Counter[e.count_as] += 1
+        e.count_as.to_s.upcase
+      else
+        Counter[:errors] += 1
+        "ERROR: #{e.class}"
+      end
+    else
+      ""
+    ensure
+      Counter[:depth] -= 1
+    end
+  end
+end
